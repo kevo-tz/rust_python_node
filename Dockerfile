@@ -8,7 +8,7 @@ ENV ARCH x64
 RUN set -ex \
     && export DEBIAN_FRONTEND=noninteractive \
     && apt-get update \
-    && apt-get install -y --no-install-recommends libssl-dev libbluetooth-dev tk-dev uuid-dev clang lld curl \
+    && apt-get install -y --no-install-recommends libssl-dev curl \
     # install rust toochain
     && rustup component add clippy rustfmt \
     # install Node
