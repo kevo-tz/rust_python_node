@@ -1,6 +1,9 @@
-name: ci
+name: build rust-python-node image
 
 on:
+  schedule:
+    # run every saturday night
+    - cron:  '0 0 * * SAT'
   push:
     branches:
       - 'main'
