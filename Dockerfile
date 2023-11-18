@@ -27,7 +27,6 @@ RUN groupadd --gid 1000 node \
     && ln -s /usr/local/bin/node /usr/local/bin/nodejs \
     && node --version
 
-# install python
 # runtime dependencies
 RUN set -eux; \
     apt-get update; \
@@ -35,8 +34,11 @@ RUN set -eux; \
     ca-certificates \
     netbase \
     tzdata \
+    curl \
     ; \
     rm -rf /var/lib/apt/lists/*
+
+# install python
 RUN set -eux; \
     \
     savedAptMark="$(apt-mark showmanual)"; \
@@ -58,7 +60,6 @@ RUN set -eux; \
     libsqlite3-dev \
     libssl-dev \
     make \
-    curl \
     tk-dev \
     uuid-dev \
     xz-utils \
@@ -162,3 +163,11 @@ RUN set -eux; \
     rm -f get-pip.py; \
     \
     pip --version
+
+# install rust componentd
+RUN set -ex \
+    && apt-get update && export DEBIAN_FRONTEND=noninteractive \
+    && apt install -y --no-install-recommends clang lld \
+    && rustup component add clippy rustfmt \
+    && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
+    && rm -rf /var/lib/apt/lists/*
