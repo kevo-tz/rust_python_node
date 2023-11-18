@@ -35,6 +35,7 @@ RUN set -eux; \
     netbase \
     tzdata \
     curl \
+    git \
     ; \
     rm -rf /var/lib/apt/lists/*
 
