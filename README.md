@@ -1,6 +1,11 @@
 # Rust Python Node
 A multi-language project that combines Rust, Python, and Node.js to demonstrate interoperability between these languages.
 
+- Rust Version 1.85.0
+- Node Version 23.10.0
+- Python Version 3.13.2
+
+
 # Usage 
 Pull the latest image from the Docker
 
