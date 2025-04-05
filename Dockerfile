@@ -1,7 +1,7 @@
 FROM rust:1.86.0-slim-bookworm
 
 ENV LANG C.UTF-8
-ENV NODE_VERSION 23.10.0
+ENV NODE_VERSION 23.11.0
 ENV PYTHON_VERSION 3.13.2
 ENV PATH /usr/local/bin:$PATH
 ENV PYTHON_GET_PIP_URL https://bootstrap.pypa.io/get-pip.py
