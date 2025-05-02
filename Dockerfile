@@ -168,7 +168,7 @@ RUN set -eux; \
 # install rust componentd
 RUN set -ex \
     && apt-get update && export DEBIAN_FRONTEND=noninteractive \
-    && apt install -y --no-install-recommends clang lld pkg-config \
+    && apt install -y --no-install-recommends clang lld pkg-config libssl-dev \
     && rustup component add clippy rustfmt \
     && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
     && rm -rf /var/lib/apt/lists/*
