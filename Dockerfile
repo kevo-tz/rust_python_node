@@ -24,7 +24,8 @@ RUN set -eux; \
     rm "node-v$NODE_VERSION-linux-x64.tar.xz"; \
     ln -s /usr/local/bin/node /usr/local/bin/nodejs; \
     node --version; \
-    rm -rf /var/lib/apt/lists/*
+    apt-get purge -y --auto-remove curl dirmngr xz-utils git; \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Install Python build dependencies and build Python from source
 RUN set -eux; \
@@ -76,8 +77,8 @@ RUN set -eux; \
         -o \( -type f -a \( -name '*.pyc' -o -name '*.pyo' -o -name 'libpython*.a' \) \) \
     \) -exec rm -rf '{}' +; \
     ldconfig; \
-    apt-get purge -y --auto-remove; \
-    rm -rf /var/lib/apt/lists/*; \
+    apt-get purge -y --auto-remove dpkg-dev gcc gnupg make xz-utils; \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*; \
     python3 --version
 
 # Create symlinks for python tools
@@ -101,8 +102,8 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends clang lld pkg-config libssl-dev; \
     rustup component add clippy rustfmt; \
-    apt-get purge -y --auto-remove; \
-    rm -rf /var/lib/apt/lists/*
+    apt-get purge -y --auto-remove clang lld pkg-config libssl-dev; \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Set default user
 USER node
