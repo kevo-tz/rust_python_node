@@ -24,7 +24,7 @@ RUN set -eux; \
     rm "node-v$NODE_VERSION-linux-x64.tar.xz"; \
     ln -s /usr/local/bin/node /usr/local/bin/nodejs; \
     node --version; \
-    apt-get purge -y --auto-remove curl dirmngr xz-utils git; \
+    apt-get purge -y --auto-remove dirmngr; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Install Python build dependencies and build Python from source
@@ -49,7 +49,6 @@ RUN set -eux; \
         make \
         tk-dev \
         uuid-dev \
-        xz-utils \
         zlib1g-dev; \
     curl -o python.tar.xz "https://www.python.org/ftp/python/${PYTHON_VERSION%%[a-z]*}/Python-$PYTHON_VERSION.tar.xz"; \
     mkdir -p /usr/src/python; \
@@ -81,7 +80,7 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*; \
     python3 --version
 
-# Create symlinks for python tools
+# Create symlinks for Python tools
 RUN set -eux; \
     for src in idle3 pydoc3 python3 python3-config; do \
         dst="$(echo "$src" | tr -d 3)"; \
@@ -102,7 +101,7 @@ RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends clang lld pkg-config libssl-dev; \
     rustup component add clippy rustfmt; \
-    apt-get purge -y --auto-remove clang lld pkg-config libssl-dev; \
+    apt-get purge -y --auto-remove; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Set default user
