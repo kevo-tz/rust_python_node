@@ -62,10 +62,13 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*; \
     python3 --version
 
-# Symlinks for `python`, `pip`, etc.
+# make some useful symlinks that are expected to exist ("/usr/local/bin/python" and friends)
 RUN set -eux; \
-    for b in idle3 pydoc3 python3 python3-config; do \
-    ln -s /usr/local/bin/$b /usr/local/bin/${b%3}; \
+    for src in idle3 pydoc3 python3 python3-config; do \
+    dst="$(echo "$src" | tr -d 3)"; \
+    [ -s "/usr/local/bin/$src" ]; \
+    [ ! -e "/usr/local/bin/$dst" ]; \
+    ln -svT "$src" "/usr/local/bin/$dst"; \
     done
 
 # Install pip
