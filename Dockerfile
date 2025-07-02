@@ -8,6 +8,8 @@ ENV LANG=C.UTF-8 \
 
 # Base dependencies (shared)
 RUN set -eux; \
+    # Install Rust tools and build deps
+    rustup component add clippy rustfmt; \
     # Create node user early for consistency
     groupadd --gid 1000 node; \
     useradd --uid 1000 --gid node --shell /bin/bash --create-home node; \
@@ -24,15 +26,20 @@ RUN set -eux; \
     lld \
     pkg-config \
     libssl-dev; \
-    rm -rf /var/lib/apt/lists/*; \
-    # Install Rust tools and build deps
-    rustup component add clippy rustfmt
-
-# Install Node.js
-RUN set -eux; \
+    rm -rf /var/lib/apt/lists/*; \ 
+    # install nodejs
     curl -fsSLO --compressed "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-x64.tar.xz"; \
     tar -xJf "node-v$NODE_VERSION-linux-x64.tar.xz" -C /usr/local --strip-components=1 --no-same-owner; \
     rm "node-v$NODE_VERSION-linux-x64.tar.xz"; \
+    apt-mark auto '.*' > /dev/null; \
+    find /usr/local -type f -executable -exec ldd '{}' ';' \
+    | awk '/=>/ { so = $(NF-1); if (index(so, "/usr/local/") == 1) { next }; gsub("^/(usr/)?", "", so); print so }' \
+    | sort -u \
+    | xargs -r dpkg-query --search \
+    | cut -d: -f1 \
+    | sort -u \
+    | xargs -r apt-mark manual; \
+    apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
     ln -s /usr/local/bin/node /usr/local/bin/nodejs; \
     node --version
 
@@ -47,18 +54,49 @@ RUN set -eux; \
     rm python.tar.xz; \
     cd /usr/src/python; \
     ./configure \
+    --build="$gnuArch" \
+    --enable-loadable-sqlite-extensions \
     --enable-optimizations \
-    --with-lto \
+    --enable-option-checking=fatal \
     --enable-shared \
+    --with-lto \
     --with-system-expat \
-    --without-ensurepip \
-    --enable-loadable-sqlite-extensions; \
-    make -j"$(nproc)"; \
+    --without-ensurepip; \
+    nproc="$(nproc)"; \
+    EXTRA_CFLAGS="$(dpkg-buildflags --get CFLAGS)"; \
+    LDFLAGS="$(dpkg-buildflags --get LDFLAGS)"; \
+    LDFLAGS="${LDFLAGS:--Wl},--strip-all"; \
+    make -j "$nproc" \
+    "EXTRA_CFLAGS=${EXTRA_CFLAGS:-}" \
+    "LDFLAGS=${LDFLAGS:-}" \
+    "PROFILE_TASK=${PROFILE_TASK:-}"; \
+    # https://github.com/docker-library/python/issues/784
+    # prevent accidental usage of a system installed libpython of the same version
+    rm python; \
+    make -j "$nproc" \
+    "EXTRA_CFLAGS=${EXTRA_CFLAGS:-}" \
+    "LDFLAGS=${LDFLAGS:--Wl},-rpath='\$\$ORIGIN/../lib'" \
+    "PROFILE_TASK=${PROFILE_TASK:-}" \
+    python; \
     make install; \
     cd /; \
     rm -rf /usr/src/python; \
+    find /usr/local -depth \
+    \( \
+    \( -type d -a \( -name test -o -name tests -o -name idle_test \) \) \
+    -o \( -type f -a \( -name '*.pyc' -o -name '*.pyo' -o -name 'libpython*.a' \) \) \
+    \) -exec rm -rf '{}' + ; \
     ldconfig; \
-    apt-get purge -y --auto-remove $buildDeps; \
+    apt-mark auto '.*' > /dev/null; \
+    apt-mark manual $savedAptMark; \
+    find /usr/local -type f -executable -not \( -name '*tkinter*' \) -exec ldd '{}' ';' \
+    | awk '/=>/ { so = $(NF-1); if (index(so, "/usr/local/") == 1) { next }; gsub("^/(usr/)?", "", so); printf "*%s\n", so }' \
+    | sort -u \
+    | xargs -r dpkg-query --search \
+    | cut -d: -f1 \
+    | sort -u \
+    | xargs -r apt-mark manual; \
+    apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
     rm -rf /var/lib/apt/lists/*; \
     python3 --version
 
