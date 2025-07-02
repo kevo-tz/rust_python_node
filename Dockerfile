@@ -44,14 +44,35 @@ RUN set -eux; \
 
 # Install Python
 RUN set -eux; \
-    buildDeps="dpkg-dev gcc make libbluetooth-dev libbz2-dev libc6-dev libdb-dev libexpat1-dev libffi-dev \
-    libgdbm-dev liblzma-dev libncursesw5-dev libreadline-dev libsqlite3-dev libssl-dev tk-dev uuid-dev zlib1g-dev"; \
-    apt-get update && apt-get install -y --no-install-recommends $buildDeps; \
+    savedAptMark="$(apt-mark showmanual)"; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+    dpkg-dev \
+    gcc \
+    gnupg \
+    libbluetooth-dev \
+    libbz2-dev \
+    libc6-dev \
+    libdb-dev \
+    libexpat1-dev \
+    libffi-dev \
+    libgdbm-dev \
+    liblzma-dev \
+    libncursesw5-dev \
+    libreadline-dev \
+    libsqlite3-dev \
+    libssl-dev \
+    make \
+    tk-dev \
+    uuid-dev \
+    xz-utils \
+    zlib1g-dev; \
     curl -o python.tar.xz "https://www.python.org/ftp/python/${PYTHON_VERSION%%[a-z]*}/Python-$PYTHON_VERSION.tar.xz"; \
     mkdir -p /usr/src/python; \
-    tar -xf python.tar.xz -C /usr/src/python --strip-components=1; \
+    tar --extract --directory /usr/src/python --strip-components=1 --file python.tar.xz; \
     rm python.tar.xz; \
     cd /usr/src/python; \
+    gnuArch="$(dpkg-architecture --query DEB_BUILD_GNU_TYPE)"; \
     ./configure \
     --build="$gnuArch" \
     --enable-loadable-sqlite-extensions \
@@ -84,7 +105,7 @@ RUN set -eux; \
     \( \
     \( -type d -a \( -name test -o -name tests -o -name idle_test \) \) \
     -o \( -type f -a \( -name '*.pyc' -o -name '*.pyo' -o -name 'libpython*.a' \) \) \
-    \) -exec rm -rf '{}' + ; \
+    \) -exec rm -rf '{}' +; \
     ldconfig; \
     apt-mark auto '.*' > /dev/null; \
     apt-mark manual $savedAptMark; \
