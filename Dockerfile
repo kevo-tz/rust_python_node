@@ -131,7 +131,18 @@ RUN set -eux; \
 
 # Install pip
 RUN set -eux; \
-    curl -sSL "$PYTHON_GET_PIP_URL" -o get-pip.py; \
-    python get-pip.py --disable-pip-version-check --no-cache-dir --no-compile; \
-    rm get-pip.py; \
+    savedAptMark="$(apt-mark showmanual)"; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends curl; \
+    curl -o get-pip.py "$PYTHON_GET_PIP_URL"; \
+    apt-mark auto '.*' > /dev/null; \
+    [ -z "$savedAptMark" ] || apt-mark manual $savedAptMark > /dev/null; \
+    apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
+    rm -rf /var/lib/apt/lists/*; \
+    export PYTHONDONTWRITEBYTECODE=1; \
+    python get-pip.py \
+    --disable-pip-version-check \
+    --no-cache-dir \
+    --no-compile; \
+    rm -f get-pip.py; \
     pip --version
