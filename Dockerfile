@@ -39,7 +39,6 @@ RUN set -eux; \
     | cut -d: -f1 \
     | sort -u \
     | xargs -r apt-mark manual; \
-    apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
     ln -s /usr/local/bin/node /usr/local/bin/nodejs; \
     node --version
 
