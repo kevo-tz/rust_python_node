@@ -6,28 +6,11 @@ ENV LANG=C.UTF-8 \
     PATH=/usr/local/bin:$PATH \
     PYTHON_GET_PIP_URL=https://bootstrap.pypa.io/get-pip.py
 
-# Base dependencies (shared)
+# install node and create a user
 RUN set -eux; \
-    # Install Rust tools and build deps
-    rustup component add clippy rustfmt; \
-    # Create node user early for consistency
     groupadd --gid 1000 node; \
     useradd --uid 1000 --gid node --shell /bin/bash --create-home node; \
-    apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
-    dirmngr \
-    xz-utils \
-    gnupg \
-    git \
-    netbase \
-    tzdata \
-    clang \
-    lld \
-    pkg-config \
-    libssl-dev; \
-    rm -rf /var/lib/apt/lists/*; \ 
-    # install nodejs
+    apt-get update && apt-get install -y ca-certificates curl dirmngr xz-utils --no-install-recommends; \
     curl -fsSLO --compressed "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-x64.tar.xz"; \
     tar -xJf "node-v$NODE_VERSION-linux-x64.tar.xz" -C /usr/local --strip-components=1 --no-same-owner; \
     rm "node-v$NODE_VERSION-linux-x64.tar.xz"; \
@@ -39,10 +22,25 @@ RUN set -eux; \
     | cut -d: -f1 \
     | sort -u \
     | xargs -r apt-mark manual; \
+    apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
+    rm -rf /var/lib/apt/lists/*; \
     ln -s /usr/local/bin/node /usr/local/bin/nodejs; \
     node --version
 
-# Install Python
+# runtime dependencies
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    netbase \
+    tzdata \
+    curl \
+    git \
+    lld \
+    clang; \
+    rm -rf /var/lib/apt/lists/*
+
+# install python
 RUN set -eux; \
     savedAptMark="$(apt-mark showmanual)"; \
     apt-get update; \
@@ -146,3 +144,7 @@ RUN set -eux; \
     --no-compile; \
     rm -f get-pip.py; \
     pip --version
+
+# install rust componentd
+RUN set -ex; \
+    rustup component add clippy rustfmt
