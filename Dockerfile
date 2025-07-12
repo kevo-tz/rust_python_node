@@ -58,7 +58,7 @@ RUN set -eux; \
     rm python; \
     make -j "$nproc" \
     "EXTRA_CFLAGS=${EXTRA_CFLAGS:-}" \
-    "LDFLAGS=${LDFLAGS:--Wl},-rpath='$ORIGIN/../lib'" \
+    "LDFLAGS=${LDFLAGS:--Wl},-rpath='\$\$ORIGIN/../lib'" \
     "PROFILE_TASK=${PROFILE_TASK:-}" \
     python; \
     make install; \
