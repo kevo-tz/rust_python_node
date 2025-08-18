@@ -3,7 +3,7 @@ A multi-language project that combines Rust, Python, and Node.js to demonstrate 
 
 - Rust Version 1.89.0
 - Node Version 24.6.0
-- Python Version 3.13.5
+- Python Version 3.13.7
 
 
 # Usage 
