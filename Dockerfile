@@ -1,4 +1,4 @@
-FROM rust:1.88.0-slim-bookworm
+FROM rust:1.89.0-slim-bookworm
 
 ENV LANG=C.UTF-8 \
     NODE_VERSION=24.5.0 \
