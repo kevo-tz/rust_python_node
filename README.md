@@ -2,7 +2,7 @@
 A multi-language project that combines Rust, Python, and Node.js to demonstrate interoperability between these languages.
 
 - Rust Version 1.89.0
-- Node Version 24.7.0
+- Node Version 24.8.0
 - Python Version 3.13.7
 
 
