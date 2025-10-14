@@ -1,6 +1,8 @@
 # Rust Python Node
 A multi-language project that combines Rust, Python, and Node.js to demonstrate interoperability between these languages.
 
+- Slim Trixie Image
+- UV latest
 - Rust Version 1.90.0
 - Node Version 24.10.0
 - Python Version 3.13.8
