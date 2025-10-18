@@ -38,13 +38,10 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV LANG=C.UTF-8
 ENV TZ=Etc/UTC
 COPY --from=uv-base $UV_HOME $UV_HOME
-COPY --from=node-base /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/
+COPY --from=node-base /usr/local /usr/local
 RUN set -eux; \
-    groupadd --gid 1000 project; \
-    useradd --uid 1000 --gid project --shell /bin/bash --create-home project; \
     apt-get update; \
     apt-get upgrade -y; \
-    apt-get install -y --no-install-recommends curl git; \
+    apt-get install -y --no-install-recommends ca-certificates curl git; \
     rm -rf /var/lib/apt/lists/*; 
-WORKDIR /project
 CMD ["bash"]
