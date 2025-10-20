@@ -43,5 +43,6 @@ RUN set -eux; \
     apt-get update; \
     apt-get upgrade -y; \
     apt-get install -y --no-install-recommends ca-certificates curl git; \
-    rm -rf /var/lib/apt/lists/*; 
+    rm -rf /var/lib/apt/lists/*; \
+    rustup component add rustfmt clippy rust-analyzer;
 CMD ["bash"]
