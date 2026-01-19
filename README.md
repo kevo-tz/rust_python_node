@@ -5,7 +5,7 @@ A multi-language project that combines Rust, Python with UV, and Node.js to demo
 - Rust Version 1.92.0
 - Node Version 25.3.0
 - Python Version 3.14.2
-- UV Version 0.9.24
+- UV Version 0.9.26
 
 
 # Usage 
