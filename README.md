@@ -3,7 +3,7 @@ A multi-language project that combines Rust, Python with UV, and Node.js to demo
 
 - Slim Trixie Image
 - Rust Version 1.93.0
-- Node Version 25.5.0
+- Node Version 25.6.0
 - Python Version 3.14.2
 - UV Version 0.9.27
 
