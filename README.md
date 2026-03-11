@@ -2,7 +2,7 @@
 A multi-language project that combines Rust, Python with UV, and Node.js to demonstrate interoperability between these languages.
 
 - Slim Trixie Image
-- Rust Version 1.93.1
+- Rust Version 1.94.0
 - Node Version 25.8.0
 - Python Version 3.14.3
 - UV Version 0.10.8
