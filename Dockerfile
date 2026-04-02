@@ -1,7 +1,7 @@
 ARG RUST_VERSION=1.94.1
 ARG NODE_VERSION=25.9.0
 ARG PYTHON_VERSION=3.14.3
-ARG UV_VERSION=0.11.2
+ARG UV_VERSION=0.11.3
 
 # stage 1: Base image Rust with Python via UV
 FROM rust:${RUST_VERSION}-slim-trixie AS uv-base
