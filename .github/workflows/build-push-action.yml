@@ -77,6 +77,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Needs DOCKERHUB_TOKEN to carry delete scope. Non-fatal: if the token
+      # cannot delete tags the step warns and the release still succeeds.
       - name: Prune old timestamped tags
         if: always()
         continue-on-error: true
