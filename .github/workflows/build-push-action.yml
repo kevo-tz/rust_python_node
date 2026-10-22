@@ -13,6 +13,11 @@ env:
   # how many timestamped rpn-* tags to keep on Docker Hub
   KEEP_RPN_TAGS: '10'
 
+# Avoid duplicate builds (and duplicate rpn-* tags) when a push is queued twice.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   docker:
     runs-on: ubuntu-latest
