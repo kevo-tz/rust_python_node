@@ -3,34 +3,84 @@ name: build rust-python-node image
 on:
   schedule:
     # run every saturday night
-    - cron:  '0 0 * * SAT'
+    - cron: '0 0 * * SAT'
   push:
     branches:
       - 'main'
+
+env:
+  IMAGE: kevotz/rust_python_node
+  # how many timestamped rpn-* tags to keep on Docker Hub
+  KEEP_RPN_TAGS: '10'
 
 jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
-      -
-        name: Checkout
-        uses: actions/checkout@v3
-      -
-        name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-      -
-        name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      -
-        name: Login to Docker Hub
-        uses: docker/login-action@v3
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      -
-        name: Build and push
-        uses: docker/build-push-action@v5
+
+      - name: Derive toolchain tag from Dockerfile
+        id: versions
+        run: |
+          set -euo pipefail
+          rust=$(grep -oP '^ARG RUST_VERSION=\K\S+' Dockerfile)
+          node=$(grep -oP '^ARG NODE_VERSION=\K\S+' Dockerfile)
+          python=$(grep -oP '^ARG PYTHON_VERSION=\K\S+' Dockerfile)
+          uv=$(grep -oP '^ARG UV_VERSION=\K\S+' Dockerfile)
+          tag="v${rust}-node${node}-py${python}-uv${uv}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Toolchain tag: ${tag}"
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: |
+            latest=false
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=main,enable={{is_default_branch}}
+            type=raw,value=rpn-{{date 'YYYYMMDD-HHmmss' tz='UTC'}}
+            type=sha
+            type=raw,value=${{ steps.versions.outputs.tag }}
+          labels: |
+            org.opencontainers.image.title=${{ env.IMAGE }}
+            org.opencontainers.image.description=Development image with Rust, Node.js, Python (via uv) and Uv
+            org.opencontainers.image.version=${{ steps.versions.outputs.tag }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created={{date 'YYYY-MM-DDTHH:mm:ssZ' tz='UTC'}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
-          tags: kevotz/rust_python_node:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            IMAGE_VERSION=${{ steps.versions.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Prune old timestamped tags
+        if: always()
+        continue-on-error: true
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: .github/scripts/prune-rpn-tags.sh

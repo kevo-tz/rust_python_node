@@ -27,8 +27,9 @@ RUN set -eux; \
 
 # stage 3: Final image with Rust, Python via UV and Node.js
 FROM rust:${RUST_VERSION}-slim-trixie
+ARG IMAGE_VERSION=dev
 LABEL maintainer="Kevo <me@kevo.co.tz>" \
-      version="1.0" \
+      version="${IMAGE_VERSION}" \
       description="Docker image for Rust, Node.js, Python, and Uv Project Development"
 ENV HOME="/home"
 ENV UV_HOME=$HOME/.local/
