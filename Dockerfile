@@ -1,6 +1,6 @@
 ARG RUST_VERSION=1.99.1
 ARG NODE_VERSION=26.12.1
-ARG PYTHON_VERSION=3.15.2
+ARG PYTHON_VERSION=3.15.1
 ARG UV_VERSION=0.13.5
 
 # stage 1: Base image Rust with Python via UV
@@ -12,7 +12,7 @@ ENV UV_HOME=$HOME/.local/
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV TZ=Etc/UTC
-RUN set -eux; \
+RUN set -euxo pipefail; \
     apt-get update; \
     apt-get upgrade -y; \
     apt-get install -y --no-install-recommends curl; \
@@ -21,7 +21,7 @@ RUN set -eux; \
 
 # stage 2: Base image Node.js
 FROM node:${NODE_VERSION}-trixie-slim AS node-base
-RUN set -eux; \
+RUN set -euxo pipefail; \
     apt-get update; \
     apt-get upgrade -y;
 
@@ -40,10 +40,12 @@ ENV LANG=C.UTF-8
 ENV TZ=Etc/UTC
 COPY --from=uv-base $UV_HOME $UV_HOME
 COPY --from=node-base /usr/local /usr/local
-RUN set -eux; \
+RUN set -euxo pipefail; \
     apt-get update; \
     apt-get upgrade -y; \
     apt-get install -y --no-install-recommends ca-certificates curl git; \
     rm -rf /var/lib/apt/lists/*; \
+    printf '%s\n' 'export PATH="/home/.local/bin:/usr/local/cargo/bin:$PATH"' > /etc/profile.d/00-toolchain-path.sh; \
+    chmod 0644 /etc/profile.d/00-toolchain-path.sh; \
     rustup component add rustfmt clippy rust-analyzer;
 CMD ["bash"]

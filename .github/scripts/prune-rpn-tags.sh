@@ -17,6 +17,13 @@ LAST_STATUS=""
 log() { printf '%s\n' "$*"; }
 warn() { printf '::warning::%s\n' "$*"; }
 
+# A zero or negative KEEP would delete every rpn-* tag, including the one just
+# published, so refuse to run with anything but a positive integer.
+if [[ ! "$KEEP" =~ ^[1-9][0-9]*$ ]]; then
+  warn "KEEP_RPN_TAGS must be a positive integer (got '${KEEP}') - refusing to prune."
+  exit 1
+fi
+
 # fetch <method> <url> <out_file> [bearer_token]
 # Echoes the HTTP status code. Returns non-zero on transport failure.
 fetch() {
@@ -63,7 +70,7 @@ list_all() {
     status=$(fetch GET "$url" "$body_file" "${1:-}") || status="000"
     LAST_STATUS="$status"
     [[ "$status" == "200" ]] || return 1
-    jq -c '.results[]? | {name, last_updated}' "$body_file" >> "$tags_file"
+    jq -c '.results[]? | select(.name | startswith("rpn-")) | {name, last_updated}' "$body_file" >> "$tags_file"
     next=$(jq -r '.next // empty' "$body_file" 2>/dev/null || true)
     url="${next}"
   done
@@ -109,3 +116,8 @@ for tag in "${stale[@]}"; do
 done
 
 log "Pruned $(( ${#stale[@]} - failed )) tag(s), ${failed} failed."
+
+if [[ "$failed" -gt 0 ]]; then
+  warn "${failed} tag deletion(s) failed - pruning is incomplete."
+  exit 1
+fi

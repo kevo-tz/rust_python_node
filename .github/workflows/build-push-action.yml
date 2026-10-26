@@ -1,12 +1,16 @@
 name: build rust-python-node image
 
 on:
+  pull_request:
+    branches:
+      - 'main'
   schedule:
     # run every saturday night
     - cron: '0 0 * * SAT'
   push:
     branches:
       - 'main'
+  workflow_dispatch:
 
 env:
   IMAGE: kevotz/rust_python_node
@@ -20,6 +24,9 @@ concurrency:
 
 jobs:
   docker:
+    # Manual dispatches may only publish from the default branch; a branch
+    # run would otherwise hand the delete-scoped token to branch code.
+    if: github.event_name != 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -32,6 +39,7 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Login to Docker Hub
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -46,6 +54,10 @@ jobs:
           python=$(grep -oP '^ARG PYTHON_VERSION=\K\S+' Dockerfile)
           uv=$(grep -oP '^ARG UV_VERSION=\K\S+' Dockerfile)
           tag="v${rust}-node${node}-py${python}-uv${uv}"
+          if [[ ! "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "::error::Derived toolchain tag is not a valid Docker tag"
+            exit 1
+          fi
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "Toolchain tag: ${tag}"
 
@@ -59,9 +71,9 @@ jobs:
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=main,enable={{is_default_branch}}
-            type=raw,value=rpn-{{date 'YYYYMMDD-HHmmss' tz='UTC'}}
+            type=raw,value=rpn-{{date 'YYYYMMDD-HHmmss' tz='UTC'}},enable={{is_default_branch}}
             type=sha
-            type=raw,value=${{ steps.versions.outputs.tag }}
+            type=raw,value=${{ steps.versions.outputs.tag }},enable={{is_default_branch}}
           labels: |
             org.opencontainers.image.title=${{ env.IMAGE }}
             org.opencontainers.image.description=Development image with Rust, Node.js, Python (via uv) and Uv
@@ -70,22 +82,58 @@ jobs:
             org.opencontainers.image.created={{date 'YYYY-MM-DDTHH:mm:ssZ' tz='UTC'}}
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          # PRs build the runner's architecture and load it for the smoke
+          # test; publishing runs build the full multi-arch manifest.
+          platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
+          push: ${{ github.event_name != 'pull_request' }}
+          load: ${{ github.event_name == 'pull_request' }}
+          tags: ${{ github.event_name == 'pull_request' && 'rpn-smoke:pr' || steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             IMAGE_VERSION=${{ steps.versions.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Smoke test image
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            image="rpn-smoke:pr"
+          else
+            digest="${{ steps.build.outputs.digest }}"
+            if [ -z "$digest" ]; then
+              echo "::error::No pushed digest from the build step"
+              exit 1
+            fi
+            image="${IMAGE}@${digest}"
+          fi
+          echo "Testing ${image}"
+          docker run --rm "$image" bash -eo pipefail -c '
+            rustc --version
+            cargo --version
+            node --version
+            npm --version
+            python --version
+            uv --version
+            python -c "import ssl, sqlite3, zlib"
+            git --version
+          '
+          # Login shells must see the full toolchain, not just Node.
+          docker run --rm "$image" bash -leo pipefail -c '
+            for tool in rustc cargo uv python node; do
+              command -v "$tool" > /dev/null
+            done
+          '
+          echo "Smoke test passed."
+
       # Needs DOCKERHUB_TOKEN to carry delete scope. Non-fatal: if the token
       # cannot delete tags the step warns and the release still succeeds.
       - name: Prune old timestamped tags
-        if: always()
+        if: success() && github.event_name != 'pull_request'
         continue-on-error: true
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
