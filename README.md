@@ -4,7 +4,7 @@ A multi-language project that combines Rust, Python with UV, and Node.js to demo
 - Slim Trixie Image
 - Rust Version 1.99.1
 - Node Version 26.12.1
-- Python Version 3.15.1
+- Python Version 3.15.2
 - UV Version 0.13.5
 
 
@@ -28,7 +28,7 @@ docker pull kevotz/rust_python_node
 Pin an exact toolchain when reproducibility matters:
 
 `
-docker pull kevotz/rust_python_node:v1.99.1-node26.12.1-py3.15.1-uv0.13.5
+docker pull kevotz/rust_python_node:v1.99.1-node26.12.1-py3.15.2-uv0.13.5
 `
 
 The image is published for `linux/amd64` and `linux/arm64`.
