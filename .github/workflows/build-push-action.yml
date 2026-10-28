@@ -167,20 +167,42 @@ jobs:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           set -euo pipefail
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+
           if [ "$EVENT" = "pull_request" ]; then
+            # PR builds are single-platform and loaded locally.
             echo "ref=rpn-smoke:pr" >> "$GITHUB_OUTPUT"
-          else
-            if [ -z "$DIGEST" ]; then
-              echo "::error::No pushed digest from the build step"
+            echo "ref_amd64=rpn-smoke:pr" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$DIGEST" ]; then
+            echo "::error::No pushed digest from the build step"
+            exit 1
+          fi
+
+          index_ref="${IMAGE}@${DIGEST}"
+          echo "ref=${index_ref}" >> "$GITHUB_OUTPUT"
+
+          # Docker's classic image store cannot hold two platforms under one
+          # manifest-list digest ("cannot overwrite digest"), so pin each smoke
+          # test to its platform-specific manifest digest instead.
+          index="$(docker buildx imagetools inspect --raw "$index_ref")"
+          for arch in amd64 arm64; do
+            arch_digest="$(jq -r --arg arch "$arch" '
+              [.manifests[] | select(
+                .platform.os == "linux" and .platform.architecture == $arch
+              )][0].digest // empty
+            ' <<<"$index")"
+            if [ -z "$arch_digest" ]; then
+              echo "::error::Could not find the linux/${arch} manifest in ${index_ref}"
               exit 1
             fi
-            echo "ref=${IMAGE}@${DIGEST}" >> "$GITHUB_OUTPUT"
-          fi
-          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+            echo "ref_${arch}=${IMAGE}@${arch_digest}" >> "$GITHUB_OUTPUT"
+          done
 
       - name: Smoke test amd64
         env:
-          REF: ${{ steps.image.outputs.ref }}
+          REF: ${{ steps.image.outputs.ref_amd64 }}
           EXPECTED_CACHE_BUST: ${{ github.event_name == 'schedule' && github.run_id || '0' }}
         run: |
           set -euo pipefail
@@ -281,7 +303,7 @@ jobs:
       - name: Smoke test arm64
         if: github.event_name != 'pull_request'
         env:
-          REF: ${{ steps.image.outputs.ref }}
+          REF: ${{ steps.image.outputs.ref_arm64 }}
           EXPECTED_CACHE_BUST: ${{ github.event_name == 'schedule' && github.run_id || '0' }}
         run: |
           set -euo pipefail
