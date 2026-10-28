@@ -1,0 +1,15 @@
+# Hadolint policy for the published development image.
+#
+# DL3008: apt packages are intentionally unpinned. The weekly scheduled build
+# runs apt-get update/upgrade behind APT_CACHE_BUST, which is the patch
+# mechanism for this image. Pinning individual apt versions would make the
+# weekly rebuild fail whenever Debian rotates a package out of the archive.
+#
+# Warnings intentionally left visible (not ignored, and not blocking):
+# DL4006 / SC3040: RUN uses /bin/sh (dash). Dash on trixie accepts
+#   `set -o pipefail`, so the pipe in the uv installer is covered.
+# SC2016: the /etc/profile.d line is deliberately a literal single-quoted
+#   string; it must expand in the login shell, not at build time.
+failure-threshold: error
+ignored:
+  - DL3008

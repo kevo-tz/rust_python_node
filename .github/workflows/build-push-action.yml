@@ -5,34 +5,95 @@ on:
     branches:
       - 'main'
   schedule:
-    # run every saturday night
+    # run every saturday night; this is a real apt refresh, not a cache hit
     - cron: '0 0 * * SAT'
   push:
     branches:
       - 'main'
   workflow_dispatch:
+    inputs:
+      drill:
+        description: 'Release-gate drill (none, fail-smoke, repeat-promote)'
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - fail-smoke
+          - repeat-promote
 
 env:
   IMAGE: kevotz/rust_python_node
+  STAGING_TAG: rpn-staging
   # how many timestamped rpn-* tags to keep on Docker Hub
   KEEP_RPN_TAGS: '10'
 
-# Avoid duplicate builds (and duplicate rpn-* tags) when a push is queued twice.
+permissions:
+  contents: read
+
+# Cancel PR runs only. Pushes and schedules share a group and queue, so a push
+# cannot kill a weekly rebuild mid-apt and two promotions cannot race.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  docker:
-    # Manual dispatches may only publish from the default branch; a branch
-    # run would otherwise hand the delete-scoped token to branch code.
-    if: github.event_name != 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+  lint:
+    # Warnings stay visible; errors block. Skip the weekly schedule to avoid
+    # spending a run on unchanged files.
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Shellcheck
+        run: shellcheck .github/scripts/*.sh scripts/*.sh
+
+      - name: Hadolint
+        run: |
+          docker run --rm \
+            -v "$PWD:/mnt" -w /mnt \
+            hadolint/hadolint:v2.14.0 \
+            hadolint --config .hadolint.yaml --failure-threshold error Dockerfile
+
+      - name: Actionlint
+        run: |
+          docker run --rm \
+            -v "$PWD:/repo" -w /repo \
+            rhysd/actionlint:1.7.7
+
+      - name: Dockerfile encoding
+        run: |
+          set -euo pipefail
+          if grep -q $'\r' Dockerfile; then
+            echo "::error::Dockerfile contains CR characters; use LF line endings"
+            exit 1
+          fi
+          if [ -n "$(tail -c 1 Dockerfile)" ]; then
+            echo "::error::Dockerfile must end with a trailing newline"
+            exit 1
+          fi
+
+  docker:
+    needs: lint
+    # Lint errors block a release; a skipped lint job (schedule/dispatch) does
+    # not. Manual dispatches may only publish from the default branch; a branch
+    # run would otherwise hand the delete-scoped token to branch code.
+    if: |
+      always() &&
+      (needs.lint.result == 'success' || needs.lint.result == 'skipped') &&
+      (github.event_name != 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
       - name: Set up QEMU
+        # PRs build amd64 only; the arm64 smoke needs QEMU.
+        if: github.event_name != 'pull_request'
         uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
@@ -81,54 +142,406 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.created={{date 'YYYY-MM-DDTHH:mm:ssZ' tz='UTC'}}
 
-      - name: Build and push
+      # Build and push only the internal staging tag. No release tag moves
+      # until both architecture smoke tests pass.
+      - name: Build staging image
         id: build
         uses: docker/build-push-action@v7
         with:
           context: .
-          # PRs build the runner's architecture and load it for the smoke
-          # test; publishing runs build the full multi-arch manifest.
           platforms: ${{ github.event_name == 'pull_request' && 'linux/amd64' || 'linux/amd64,linux/arm64' }}
           push: ${{ github.event_name != 'pull_request' }}
           load: ${{ github.event_name == 'pull_request' }}
-          tags: ${{ github.event_name == 'pull_request' && 'rpn-smoke:pr' || steps.meta.outputs.tags }}
+          tags: ${{ github.event_name == 'pull_request' && 'rpn-smoke:pr' || format('{0}:{1}', env.IMAGE, env.STAGING_TAG) }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             IMAGE_VERSION=${{ steps.versions.outputs.tag }}
+            APT_CACHE_BUST=${{ github.event_name == 'schedule' && github.run_id || '0' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Smoke test image
+      - name: Resolve image under test
+        id: image
+        env:
+          EVENT: ${{ github.event_name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            image="rpn-smoke:pr"
+          if [ "$EVENT" = "pull_request" ]; then
+            echo "ref=rpn-smoke:pr" >> "$GITHUB_OUTPUT"
           else
-            digest="${{ steps.build.outputs.digest }}"
-            if [ -z "$digest" ]; then
+            if [ -z "$DIGEST" ]; then
               echo "::error::No pushed digest from the build step"
               exit 1
             fi
-            image="${IMAGE}@${digest}"
+            echo "ref=${IMAGE}@${DIGEST}" >> "$GITHUB_OUTPUT"
           fi
-          echo "Testing ${image}"
-          docker run --rm "$image" bash -eo pipefail -c '
-            rustc --version
-            cargo --version
-            node --version
-            npm --version
-            python --version
-            uv --version
-            python -c "import ssl, sqlite3, zlib"
-            git --version
-          '
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke test amd64
+        env:
+          REF: ${{ steps.image.outputs.ref }}
+          EXPECTED_CACHE_BUST: ${{ github.event_name == 'schedule' && github.run_id || '0' }}
+        run: |
+          set -euo pipefail
+          echo "Testing ${REF} on linux/amd64"
+          docker run --rm -i --platform linux/amd64 \
+            -e EXPECTED_CACHE_BUST="$EXPECTED_CACHE_BUST" \
+            "$REF" bash -lse <<'SMOKE'
+          set -euo pipefail
+          : "${EXPECTED_CACHE_BUST:?EXPECTED_CACHE_BUST is required}"
+          assert_eq() {
+            if [ "$1" != "$2" ]; then
+              printf 'assertion failed (%s): got %s, want %s\n' "$3" "$1" "$2" >&2
+              exit 1
+            fi
+          }
+          assert_eq "$(id -u)" "0" "default uid"
+          assert_eq "$HOME" "/home" "HOME"
+          assert_eq "$UV_HOME" "/home/.local/" "UV_HOME"
+          assert_eq "$DEBIAN_FRONTEND" "noninteractive" "DEBIAN_FRONTEND"
+          assert_eq "$(pwd)" "/workspace" "WORKDIR"
+          assert_eq "$(cat /etc/rpn/apt-cache-bust)" "$EXPECTED_CACHE_BUST" "apt cache bust"
+          case "$PATH" in
+            *//*) printf 'PATH contains //: %s\n' "$PATH" >&2; exit 1 ;;
+          esac
+
+          rustc --version
+          cargo --version
+          rust-analyzer --version
+          rustfmt --version
+          cargo clippy --version
+          node --version
+          npm --version
+          python --version
+          python3 --version
+          uv --version
+          git --version
+          make --version
+          g++ --version
+          pkg-config --version
+          pkg-config --exists openssl
+
+          for tool in ssh jq less unzip vi; do
+            command -v "$tool" > /dev/null || {
+              printf 'missing required tool: %s\n' "$tool" >&2
+              exit 1
+            }
+          done
+
+          python -c "import ssl, sqlite3, zlib"
+          python -m venv /tmp/venv
+          /tmp/venv/bin/python -c "import ssl, sqlite3, zlib"
+          uv venv /tmp/uvenv
+          /tmp/uvenv/bin/python -c "import ssl, sqlite3, zlib"
+
+          tmp="$(mktemp -d)"
+          cargo new --bin --vcs none "$tmp/hi"
+          cd "$tmp/hi"
+          cargo build
+          ./target/debug/hi
+
+          cat > "$tmp/ssl.c" <<'C_CODE'
+          #include <openssl/ssl.h>
+          #include <stdio.h>
+          int main(void) {
+            printf("%s\n", OpenSSL_version(OPENSSL_VERSION));
+            return 0;
+          }
+          C_CODE
+          cc -o "$tmp/ssl-c" "$tmp/ssl.c" -lssl -lcrypto
+          "$tmp/ssl-c"
+
+          cat > "$tmp/ssl.cpp" <<'CPP_CODE'
+          #include <openssl/ssl.h>
+          #include <iostream>
+          int main() {
+            std::cout << OpenSSL_version(OPENSSL_VERSION) << std::endl;
+            return 0;
+          }
+          CPP_CODE
+          g++ -o "$tmp/ssl-cpp" "$tmp/ssl.cpp" -lssl -lcrypto
+          "$tmp/ssl-cpp"
+          SMOKE
+
           # Login shells must see the full toolchain, not just Node.
-          docker run --rm "$image" bash -leo pipefail -c '
+          docker run --rm -i --platform linux/amd64 "$REF" bash -leo pipefail -c '
             for tool in rustc cargo uv python node; do
               command -v "$tool" > /dev/null
             done
           '
-          echo "Smoke test passed."
+
+          cmd="$(docker image inspect --format '{{json .Config.Cmd}}' "$REF")"
+          if [ "$cmd" != '["bash"]' ]; then
+            echo "::error::Unexpected image CMD: ${cmd}"
+            exit 1
+          fi
+          echo "amd64 smoke passed."
+
+      - name: Smoke test arm64
+        if: github.event_name != 'pull_request'
+        env:
+          REF: ${{ steps.image.outputs.ref }}
+          EXPECTED_CACHE_BUST: ${{ github.event_name == 'schedule' && github.run_id || '0' }}
+        run: |
+          set -euo pipefail
+          echo "Testing ${REF} on linux/arm64 (QEMU)"
+          docker run --rm -i --platform linux/arm64 \
+            -e EXPECTED_CACHE_BUST="$EXPECTED_CACHE_BUST" \
+            "$REF" bash -lse <<'ARM_SMOKE'
+          set -euo pipefail
+          : "${EXPECTED_CACHE_BUST:?EXPECTED_CACHE_BUST is required}"
+          if [ "$(uname -m)" != "aarch64" ]; then
+            printf 'expected aarch64, got %s\n' "$(uname -m)" >&2
+            exit 1
+          fi
+          if [ "$(cat /etc/rpn/apt-cache-bust)" != "$EXPECTED_CACHE_BUST" ]; then
+            echo "apt cache bust value does not match" >&2
+            exit 1
+          fi
+          cargo new --bin --vcs none /tmp/arm-hi
+          cd /tmp/arm-hi
+          cargo build
+          ./target/debug/arm-hi
+          python -c "import ssl"
+          node --version
+          ARM_SMOKE
+          echo "arm64 smoke passed."
+
+      - name: DX quickstart smoke (non-root)
+        env:
+          REF: ${{ steps.image.outputs.ref }}
+        run: scripts/dx-smoke.sh "$REF"
+
+      - name: Network crate smoke (openssl-sys)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          REF: ${{ steps.image.outputs.ref }}
+        run: |
+          set -euo pipefail
+          docker run --rm -i "$REF" bash -lse <<'CRATE_SMOKE'
+          set -euo pipefail
+          cargo new --bin --vcs none /tmp/openssl-sys-smoke
+          cd /tmp/openssl-sys-smoke
+          cargo add openssl-sys@0.9
+          cargo build
+          CRATE_SMOKE
+          echo "openssl-sys network build passed."
+
+      - name: Record image metrics
+        continue-on-error: true
+        env:
+          EVENT: ${{ github.event_name }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "pull_request" ]; then
+            size="$(docker image inspect --format '{{.Size}}' rpn-smoke:pr)"
+            {
+              echo "### Image metrics (PR build)"
+              echo ""
+              echo "- Uncompressed local image size: ${size} bytes"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          target="${IMAGE}@${DIGEST}"
+          index="$(docker buildx imagetools inspect --raw "$target")"
+          child="$(jq -r '[.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64")][0].digest' <<<"$index")"
+          if [ -z "$child" ] || [ "$child" = "null" ]; then
+            echo "::warning::Could not find the amd64 manifest in ${target}"
+            exit 0
+          fi
+          compressed="$(docker buildx imagetools inspect --raw "${IMAGE}@${child}" | jq '[.layers[].size] | add')"
+          compressed_mb=$(( compressed / 1000000 ))
+
+          # Measure a cold-ish pull on the runner after removing the local copy.
+          docker image rm -f "$target" > /dev/null 2>&1 || true
+          start="$(date +%s)"
+          docker pull "$target" > /dev/null
+          docker run --rm "$target" bash -lc '
+            cargo new --bin --vcs none /tmp/tthw-hi > /dev/null
+            cd /tmp/tthw-hi
+            cargo build -q
+            ./target/debug/tthw-hi > /dev/null
+          ' > /dev/null
+          elapsed=$(( $(date +%s) - start ))
+
+          if [ "$compressed" -gt 600000000 ]; then
+            echo "::warning::Compressed size ${compressed_mb} MB exceeds the 600 MB warning threshold"
+          fi
+          if [ "$elapsed" -gt 480 ]; then
+            echo "::warning::Pull-to-hello-world ${elapsed}s exceeds the 8 minute warning threshold"
+          fi
+          {
+            echo "### Image metrics (runner-measured, warn-only)"
+            echo ""
+            echo "- Compressed size (amd64 layers): ${compressed} bytes (~${compressed_mb} MB)"
+            echo "- Pull-to-hello-world: ${elapsed}s"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Drill - fail smoke gate
+        if: github.event_name == 'workflow_dispatch' && inputs.drill == 'fail-smoke'
+        run: |
+          echo "::error::drill=fail-smoke: intentional failure before promotion"
+          exit 1
+
+      - name: Promote release tags
+        if: github.event_name != 'pull_request'
+        env:
+          EVENT: ${{ github.event_name }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+          DRILL: ${{ github.event_name == 'workflow_dispatch' && inputs.drill || 'none' }}
+          RELEASE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          # IMAGE is provided by the workflow-level env block.
+          # shellcheck disable=SC2153
+          set -euo pipefail
+          if [ -z "$DIGEST" ]; then
+            echo "::error::No built digest to promote"
+            exit 1
+          fi
+
+          mapfile -t refs < <(printf '%s\n' "$RELEASE_TAGS" | sed '/^[[:space:]]*$/d')
+          if [ "${#refs[@]}" -eq 0 ]; then
+            echo "::error::metadata-action produced no release tags"
+            exit 1
+          fi
+
+          release=()
+          promote=()
+          sha_exists() {
+            local tag="$1" err
+            if err="$(docker buildx imagetools inspect "${IMAGE}:${tag}" 2>&1 >/dev/null)"; then
+              return 0
+            fi
+            case "$err" in
+              *"not found"*|*"manifest unknown"*)
+                return 1
+                ;;
+              *)
+                echo "::error::Could not determine whether ${IMAGE}:${tag} exists: ${err}" >&2
+                exit 1
+                ;;
+            esac
+          }
+
+          for ref in "${refs[@]}"; do
+            tag="${ref##*:}"
+            if [[ "$tag" == sha-* ]]; then
+              # sha-* is promoted once, after smoke, and never overwritten.
+              if [ "$EVENT" != "push" ]; then
+                echo "sha tag ${tag}: event is ${EVENT}; not moving it"
+              elif sha_exists "$tag"; then
+                echo "sha tag ${tag} already exists; not moving it"
+              else
+                echo "sha tag ${tag} is new; it will be promoted"
+                release+=("$tag")
+              fi
+            else
+              release+=("$tag")
+            fi
+          done
+
+          if [ "${#release[@]}" -lt 4 ] || [ "${#release[@]}" -gt 5 ]; then
+            echo "::error::Unexpected release tag count: ${#release[@]} (expected 4, or 5 with a new sha tag)"
+            printf '  %s\n' "${release[@]}"
+            exit 1
+          fi
+
+          has_latest=false
+          for tag in "${release[@]}"; do
+            if [ "$tag" = "latest" ]; then
+              has_latest=true
+            else
+              promote+=("$tag")
+            fi
+          done
+          if [ "$has_latest" != true ]; then
+            echo "::error::latest is missing from the release tag list"
+            exit 1
+          fi
+
+          tag_digest() {
+            docker buildx imagetools inspect "${IMAGE}:$1" --format '{{.Manifest.Digest}}'
+          }
+
+          verify_tags() {
+            local tag actual failed=0
+            for tag in "$@"; do
+              if actual="$(tag_digest "$tag")" && [ "$actual" = "$DIGEST" ]; then
+                echo "verified ${IMAGE}:${tag} == ${DIGEST}"
+              else
+                echo "::error::${IMAGE}:${tag} has digest '${actual:-missing}', expected ${DIGEST}"
+                failed=1
+              fi
+            done
+            return "$failed"
+          }
+
+          promote_with_retry() {
+            local attempt tag
+            local -a args
+            for attempt in 1 2 3; do
+              args=()
+              for tag in "$@"; do
+                args+=(-t "${IMAGE}:${tag}")
+              done
+              echo "Promotion attempt ${attempt}: $*"
+              if docker buildx imagetools create "${args[@]}" "${IMAGE}@${DIGEST}" && verify_tags "$@"; then
+                return 0
+              fi
+              echo "::warning::promotion attempt ${attempt} failed or did not verify; retrying"
+              sleep $(( attempt * 5 ))
+            done
+            return 1
+          }
+
+          run_promotion() {
+            if [ "${#promote[@]}" -gt 0 ]; then
+              promote_with_retry "${promote[@]}" || return 1
+            fi
+            # latest moves last, only after every other tag verified.
+            promote_with_retry latest || return 1
+            verify_tags "${release[@]}"
+          }
+
+          record_state() {
+            local tag actual
+            {
+              echo "### Promotion failed"
+              echo ""
+              echo "| Tag | Current digest | Expected |"
+              echo "| --- | --- | --- |"
+              for tag in "${release[@]}"; do
+                if actual="$(tag_digest "$tag")"; then :; else actual="missing"; fi
+                echo "| ${tag} | ${actual} | ${DIGEST} |"
+              done
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          if ! run_promotion; then
+            record_state
+            echo "::error::Release promotion failed; see the job summary for the current tag digests"
+            exit 1
+          fi
+
+          if [ "$DRILL" = "repeat-promote" ]; then
+            echo "drill=repeat-promote: running the same promotion again"
+            if ! run_promotion; then
+              record_state
+              echo "::error::Repeat promotion did not converge on ${DIGEST}"
+              exit 1
+            fi
+          fi
+
+          {
+            echo "### Release promotion"
+            echo ""
+            echo "- Built digest: \`${DIGEST}\`"
+            echo "- Promoted tags: ${release[*]}"
+            echo "- Drill: ${DRILL}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # Needs DOCKERHUB_TOKEN to carry delete scope. Non-fatal: if the token
       # cannot delete tags the step warns and the release still succeeds.
