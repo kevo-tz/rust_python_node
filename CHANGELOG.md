@@ -18,6 +18,8 @@ All notable consumer-visible changes to this image are recorded here.
 
 ### Changed
 
+- Toolchain updates: Node.js 26.12.1 to 26.13.0, Python 3.15.1 to 3.15.2, and
+  uv 0.13.5 to 0.13.7. Rust remains at 1.99.1, the current stable release.
 - Release tags are promoted only after amd64 and arm64 smoke tests pass. The
   build pushes only the internal `rpn-staging` tag first; `latest`, `main`,
   `rpn-*`, and `v<toolchain>` move afterwards, with digest verification and

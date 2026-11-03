@@ -6,9 +6,9 @@ Node.js for multi-language development. Published for `linux/amd64` and
 
 - Slim Trixie base
 - Rust 1.99.1
-- Node.js 26.12.1
-- Python 3.15.1 (managed by uv)
-- uv 0.13.5
+- Node.js 26.13.0
+- Python 3.15.2 (managed by uv)
+- uv 0.13.7
 
 ## What's included
 
@@ -100,7 +100,7 @@ the caller's UID.
 Pin the toolchain tag for approximate reproducibility:
 
 ```bash
-docker pull kevotz/rust_python_node:v1.99.1-node26.12.1-py3.15.1-uv0.13.5
+docker pull kevotz/rust_python_node:v1.99.1-node26.13.0-py3.15.2-uv0.13.7
 ```
 
 `v<toolchain>` is mutable: the weekly rebuild can move it when Debian or the
@@ -135,7 +135,7 @@ release.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `error: No download found for request: cpython-3.15.2-linux-x86_64-gnu` | The requested Python version is not available for this platform in the uv index. | Use a supported `PYTHON_VERSION` and rebuild. This is a build-time failure, not a runtime one. |
+| `error: No download found for request: cpython-3.16.0-linux-x86_64-gnu` | The requested Python version is not available for this platform in the uv index. | Use a supported `PYTHON_VERSION` and rebuild. This is a build-time failure, not a runtime one. |
 | `fatal: detected dubious ownership in repository at '/workspace'` | A root container is using a bind mount owned by your host user. | Use the `--user "$(id -u):$(id -g)"` recipe above. As a fallback, run `git config --global --add safe.directory /workspace`. |
 | `error: Failed to initialize cache at /home/.cache/uv: Permission denied` | Running as a non-root UID without a writable `HOME`. | Pass `-e HOME=/tmp` (as in the quickstart), or mount a writable home directory. |
 
@@ -145,9 +145,9 @@ Contributions are welcome. Before opening a pull request:
 
 ```bash
 shellcheck .github/scripts/*.sh scripts/*.sh
-docker run --rm -v "$PWD:/mnt" -w /mnt hadolint/hadolint:v2.14.0 \
+docker run --rm -v "$PWD:/mnt" -w /mnt hadolint/hadolint:v2.15.1 \
   hadolint --failure-threshold error Dockerfile
-docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7
+docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12
 ```
 
 The workflow runs the same checks, builds the image, smoke-tests amd64 and

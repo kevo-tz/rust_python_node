@@ -55,14 +55,14 @@ jobs:
         run: |
           docker run --rm \
             -v "$PWD:/mnt" -w /mnt \
-            hadolint/hadolint:v2.14.0 \
+            hadolint/hadolint:v2.15.1 \
             hadolint --config .hadolint.yaml --failure-threshold error Dockerfile
 
       - name: Actionlint
         run: |
           docker run --rm \
             -v "$PWD:/repo" -w /repo \
-            rhysd/actionlint:1.7.7
+            rhysd/actionlint:1.7.12
 
       - name: Dockerfile encoding
         run: |
